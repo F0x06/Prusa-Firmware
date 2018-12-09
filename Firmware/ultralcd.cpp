@@ -2832,46 +2832,75 @@ static void lcd_babystep_z()
 }
 
 
+// Hyperfine Bed Tuning
 typedef struct
 {	// 12bytes + 9bytes = 21bytes total
     menu_data_edit_t reserved; //12 bytes reserved for number editing functions
 	int8_t status;                   // 1byte
-	int16_t left;                    // 2byte
-	int16_t right;                   // 2byte
-	int16_t front;                   // 2byte
-	int16_t rear;                    // 2byte
+	int16_t front_left;                   // 2byte
+	int16_t front_center;                   // 2byte
+	int16_t front_right;                   // 2byte
+
+	int16_t mid_left;                   // 2byte
+	int16_t mid_right;                   // 2byte
+
+	int16_t rear_left;                    // 2byte
+	int16_t rear_center;                    // 2byte
+	int16_t rear_right;                    // 2byte
 } _menu_data_adjust_bed_t;
 static_assert(sizeof(menu_data)>= sizeof(_menu_data_adjust_bed_t),"_menu_data_adjust_bed_t doesn't fit into menu_data");
+// End Hyperfine Bed Tuning
 
 void lcd_adjust_bed_reset(void)
 {
-	eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_VALID, 1);
-	eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_LEFT , 0);
-	eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_RIGHT, 0);
-	eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_FRONT, 0);
-	eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_REAR , 0);
+    // Hyperfine Bed Tuning
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_VALID, 1);
+
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_FRONT_LEFT , 0);
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_FRONT , 0);
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_FRONT_RIGHT , 0);
+
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_LEFT , 0);
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_RIGHT , 0);
+
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_REAR_LEFT , 0);
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_REAR , 0);
+    eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_REAR_RIGHT , 0);
+    // End Hyperfine Bed Tuning
+
 	_menu_data_adjust_bed_t* _md = (_menu_data_adjust_bed_t*)&(menu_data[0]);
 	_md->status = 0;
 }
 
-#define BED_ADJUSTMENT_UM_MAX 50
+#define BED_ADJUSTMENT_UM_MAX 200
 
 void lcd_adjust_bed(void)
 {
 	_menu_data_adjust_bed_t* _md = (_menu_data_adjust_bed_t*)&(menu_data[0]);
     if (_md->status == 0)
 	{
+	    // Hyperfine Bed Tuning
         // Menu was entered.
-		_md->left  = 0;
-		_md->right = 0;
-		_md->front = 0;
-		_md->rear  = 0;
+		_md->front_left  = 0;
+		_md->front_center  = 0;
+		_md->front_right  = 0;
+		_md->mid_left = 0;
+		_md->mid_right  = 0;
+		_md->rear_left  = 0;
+		_md->rear_center  = 0;
+		_md->rear_right  = 0;
         if (eeprom_read_byte((unsigned char*)EEPROM_BED_CORRECTION_VALID) == 1)
 		{
-			_md->left  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_LEFT);
-			_md->right = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_RIGHT);
-			_md->front = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT);
-			_md->rear  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR);
+			_md->front_left  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT_LEFT);
+			_md->front_center  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT);
+			_md->front_right  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT_RIGHT);
+
+			_md->mid_left  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_LEFT);
+			_md->mid_right  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_RIGHT);
+
+			_md->rear_left  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR_LEFT);
+			_md->rear_center  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR);
+            _md->rear_right  = eeprom_read_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR_RIGHT);
 		}
         _md->status = 1;
     }
@@ -2879,17 +2908,32 @@ void lcd_adjust_bed(void)
 	// leaving menu - this condition must be immediately before MENU_ITEM_BACK_P
 	if (((menu_item == menu_line) && menu_clicked && (lcd_encoder == menu_item)) || menu_leaving)
 	{
-        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_LEFT,  _md->left);
-        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_RIGHT, _md->right);
-        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT, _md->front);
-        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR,  _md->rear);
+	    eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT_LEFT,  _md->front_left);
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT, _md->front_center);
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_FRONT_RIGHT, _md->front_right);
+
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_LEFT,  _md->mid_left);
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_RIGHT, _md->mid_right);
+
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR_LEFT,  _md->rear_left);
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR, _md->rear_center);
+        eeprom_update_int8((unsigned char*)EEPROM_BED_CORRECTION_REAR_RIGHT, _md->rear_right);
+
         eeprom_update_byte((unsigned char*)EEPROM_BED_CORRECTION_VALID, 1);
 	}
 	MENU_ITEM_BACK_P(_T(MSG_SETTINGS));
-	MENU_ITEM_EDIT_int3_P(_i("Left side [um]"),  &_md->left,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
-    MENU_ITEM_EDIT_int3_P(_i("Right side[um]"), &_md->right, -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_RIGHT c=14 r=1
-    MENU_ITEM_EDIT_int3_P(_i("Front side[um]"), &_md->front, -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_FRONT c=14 r=1
-    MENU_ITEM_EDIT_int3_P(_i("Rear side [um]"),  &_md->rear,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_REAR c=14 r=1
+	MENU_ITEM_EDIT_int3_P(_i("A [um]"),  &_md->front_left,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+	MENU_ITEM_EDIT_int3_P(_i("B [um]"),  &_md->front_center,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+	MENU_ITEM_EDIT_int3_P(_i("C [um]"),  &_md->front_right,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+
+	MENU_ITEM_EDIT_int3_P(_i("D [um]"),  &_md->mid_right,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+	MENU_ITEM_EDIT_int3_P(_i("E [um]"),  &_md->rear_right,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+	MENU_ITEM_EDIT_int3_P(_i("F [um]"),  &_md->rear_center,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+
+	MENU_ITEM_EDIT_int3_P(_i("G [um]"),  &_md->rear_left,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+	MENU_ITEM_EDIT_int3_P(_i("H [um]"),  &_md->mid_left,  -BED_ADJUSTMENT_UM_MAX, BED_ADJUSTMENT_UM_MAX);////MSG_BED_CORRECTION_LEFT c=14 r=1
+    // End Hyperfine Bed Tuning
+
     MENU_ITEM_FUNCTION_P(_i("Reset"), lcd_adjust_bed_reset);////MSG_BED_CORRECTION_RESET c=0 r=0
     MENU_END();
 }

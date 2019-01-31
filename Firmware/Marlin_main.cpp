@@ -78,6 +78,7 @@
 #include <avr/pgmspace.h>
 
 #include "Dcodes.h"
+#include "AutoDeplete.h"
 
 
 #ifdef SWSPI
@@ -129,6 +130,7 @@
 #include "sound.h"
 
 #include "cmdqueue.h"
+#include "io_atmega2560.h"
 
 // Macros for bit masks
 #define BIT(b) (1<<(b))
@@ -161,7 +163,7 @@
 CardReader card;
 #endif
 
-unsigned long PingTime = millis();
+unsigned long PingTime = _millis();
 unsigned long NcTime;
 
 
@@ -194,15 +196,15 @@ bool homing_flag = false;
 
 bool temp_cal_active = false;
 
-unsigned long kicktime = millis()+100000;
+unsigned long kicktime = _millis()+100000;
 
 unsigned int  usb_printing_counter;
 
 int8_t lcd_change_fil_state = 0;
 
 unsigned long pause_time = 0;
-unsigned long start_pause_print = millis();
-unsigned long t_fan_rising_edge = millis();
+unsigned long start_pause_print = _millis();
+unsigned long t_fan_rising_edge = _millis();
 LongTimer safetyTimer;
 static LongTimer crashDetTimer;
 
@@ -641,6 +643,8 @@ void failstats_reset_print()
     eeprom_update_byte((uint8_t *)EEPROM_CRASH_COUNT_Y, 0);
     eeprom_update_byte((uint8_t *)EEPROM_FERROR_COUNT, 0);
     eeprom_update_byte((uint8_t *)EEPROM_POWER_COUNT, 0);
+	eeprom_update_byte((uint8_t *)EEPROM_MMU_FAIL, 0);
+	eeprom_update_byte((uint8_t *)EEPROM_MMU_LOAD_FAIL, 0);
 }
 
 
@@ -687,6 +691,12 @@ static void factory_reset(char level)
             eeprom_update_word((uint16_t *)EEPROM_FERROR_COUNT_TOT, 0);
             eeprom_update_word((uint16_t *)EEPROM_POWER_COUNT_TOT, 0);
 
+			eeprom_update_word((uint16_t *)EEPROM_MMU_FAIL_TOT, 0);
+			eeprom_update_word((uint16_t *)EEPROM_MMU_LOAD_FAIL_TOT, 0);
+			eeprom_update_byte((uint8_t *)EEPROM_MMU_FAIL, 0);
+			eeprom_update_byte((uint8_t *)EEPROM_MMU_LOAD_FAIL, 0);
+
+
             lcd_menu_statistics();
 
             break;
@@ -712,6 +722,11 @@ static void factory_reset(char level)
             eeprom_update_word((uint16_t *)EEPROM_CRASH_COUNT_Y_TOT, 0);
             eeprom_update_word((uint16_t *)EEPROM_FERROR_COUNT_TOT, 0);
             eeprom_update_word((uint16_t *)EEPROM_POWER_COUNT_TOT, 0);
+
+			eeprom_update_word((uint16_t *)EEPROM_MMU_FAIL_TOT, 0);
+			eeprom_update_word((uint16_t *)EEPROM_MMU_LOAD_FAIL_TOT, 0);
+			eeprom_update_byte((uint8_t *)EEPROM_MMU_FAIL, 0);
+			eeprom_update_byte((uint8_t *)EEPROM_MMU_LOAD_FAIL, 0);
 
 #ifdef FILAMENT_SENSOR
             fsensor_enable();
@@ -897,7 +912,7 @@ void update_sec_lang_from_external_flash()
         {
             fputs_P(PSTR(ESC_H(1,3) "Language update."), lcdout);
             for (uint8_t i = 0; i < state; i++) fputc('.', lcdout);
-            delay(100);
+			_delay(100);
             boot_reserved = (state + 1) | (lang << 4);
             if ((state * LANGBOOT_BLOCKSIZE) < header.size)
             {
@@ -1295,9 +1310,9 @@ void setup()
         for (uint16_t phase = (tmc2130_rd_MSCNT(Z_AXIS) + 8) >> 4; phase > 0; -- phase) {
             // Until the phase counter is reset to zero.
             WRITE(Z_STEP_PIN, !INVERT_Z_STEP_PIN);
-            delay(2);
+      _delay(2);
             WRITE(Z_STEP_PIN, INVERT_Z_STEP_PIN);
-            delay(2);
+      _delay(2);
         }
     }
 #endif //TMC2130
@@ -1343,16 +1358,16 @@ void setup()
 		uint32_t sumw = 0;
 		for (int i = 0; i < 1024; i++)
 		{
-			uint32_t u = micros();
+			uint32_t u = _micros();
 			bool res = card.card.readBlock(i, buff);
-			u = micros() - u;
+			u = _micros() - u;
 			if (res)
 			{
 				printf_P(PSTR("readBlock %4d 512 bytes %lu us\n"), i, u);
 				sumr += u;
-				u = micros();
+				u = _micros();
 				res = card.card.writeBlock(i, buff);
-				u = micros() - u;
+				u = _micros() - u;
 				if (res)
 				{
 					printf_P(PSTR("writeBlock %4d 512 bytes %lu us\n"), i, u);
@@ -1387,6 +1402,12 @@ void setup()
     if (eeprom_read_word((uint16_t*)EEPROM_CRASH_COUNT_X_TOT) == 0xffff) eeprom_write_word((uint16_t*)EEPROM_CRASH_COUNT_X_TOT, 0);
     if (eeprom_read_word((uint16_t*)EEPROM_CRASH_COUNT_Y_TOT) == 0xffff) eeprom_write_word((uint16_t*)EEPROM_CRASH_COUNT_Y_TOT, 0);
     if (eeprom_read_word((uint16_t*)EEPROM_FERROR_COUNT_TOT) == 0xffff) eeprom_write_word((uint16_t*)EEPROM_FERROR_COUNT_TOT, 0);
+
+	if (eeprom_read_word((uint16_t*)EEPROM_MMU_FAIL_TOT) == 0xffff) eeprom_update_word((uint16_t *)EEPROM_MMU_FAIL_TOT, 0);
+	if (eeprom_read_word((uint16_t*)EEPROM_MMU_LOAD_FAIL_TOT) == 0xffff) eeprom_update_word((uint16_t *)EEPROM_MMU_LOAD_FAIL_TOT, 0);
+	if (eeprom_read_byte((uint8_t*)EEPROM_MMU_FAIL) == 0xff) eeprom_update_byte((uint8_t *)EEPROM_MMU_FAIL, 0);
+	if (eeprom_read_byte((uint8_t*)EEPROM_MMU_LOAD_FAIL) == 0xff) eeprom_update_byte((uint8_t *)EEPROM_MMU_LOAD_FAIL, 0);
+
 #ifdef SNMM
     if (eeprom_read_dword((uint32_t*)EEPROM_BOWDEN_LENGTH) == 0x0ffffffff) { //bowden length used for SNMM
 	  int _z = BOWDEN_LENGTH;
@@ -1679,7 +1700,7 @@ void serial_read_stream() {
 */
 void host_keepalive() {
     if (farm_mode) return;
-    long ms = millis();
+  long ms = _millis();
     if (host_keepalive_interval && busy_state != NOT_BUSY) {
         if ((ms - prev_busy_signal_ms) < (long)(1000L * host_keepalive_interval)) return;
         switch (busy_state) {
@@ -1710,11 +1731,11 @@ void loop()
 {
     KEEPALIVE_STATE(NOT_BUSY);
 
-    if ((usb_printing_counter > 0) && ((millis()-_usb_timer) > 1000))
+	if ((usb_printing_counter > 0) && ((_millis()-_usb_timer) > 1000))
     {
         is_usb_printing = true;
         usb_printing_counter--;
-        _usb_timer = millis();
+		_usb_timer = _millis();
     }
     if (usb_printing_counter == 0)
     {
@@ -1866,7 +1887,7 @@ static int setup_for_endstop_move(bool enable_endstops_now = true) {
     saved_feedrate = feedrate;
     int l_feedmultiply = feedmultiply;
     feedmultiply = 100;
-    previous_millis_cmd = millis();
+    previous_millis_cmd = _millis();
 
     enable_endstops(enable_endstops_now);
     return l_feedmultiply;
@@ -1880,7 +1901,7 @@ static void clean_up_after_endstop_move(int original_feedmultiply) {
 
     feedrate = saved_feedrate;
     feedmultiply = original_feedmultiply;
-    previous_millis_cmd = millis();
+    previous_millis_cmd = _millis();
 }
 
 
@@ -2255,7 +2276,7 @@ void home_xy()
 
 void refresh_cmd_timeout(void)
 {
-    previous_millis_cmd = millis();
+  previous_millis_cmd = _millis();
 }
 
 #ifdef FWRETRACT
@@ -2296,9 +2317,9 @@ void retract(bool retracting, bool swapretract = false) {
 void trace() {
 //if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
     tone(BEEPER, 440);
-    delay(25);
+    _delay(25);
     noTone(BEEPER);
-    delay(20);
+    _delay(20);
 }
 /*
 void ramming() {
@@ -2359,7 +2380,7 @@ void ramming() {
 		//plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 600/60, active_extruder); //delay
 		//current_position[X_AXIS] -= 23; //delay
 		//plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 600/60, active_extruder); //delay
-		delay(4700);
+		_delay(4700);
 		max_feedrate[E_AXIS] = 80;
 		current_position[E_AXIS] -= 92;
 		plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 9900 / 60, active_extruder);
@@ -2466,7 +2487,7 @@ void gcode_G28(bool home_x_axis, long home_x_value, bool home_y_axis, long home_
     saved_feedrate = feedrate;
     int l_feedmultiply = feedmultiply;
     feedmultiply = 100;
-    previous_millis_cmd = millis();
+      previous_millis_cmd = _millis();
 
     enable_endstops(true);
 
@@ -2654,7 +2675,7 @@ void gcode_G28(bool home_x_axis, long home_x_value, bool home_y_axis, long home_
 
     feedrate = saved_feedrate;
     feedmultiply = l_feedmultiply;
-    previous_millis_cmd = millis();
+      previous_millis_cmd = _millis();
     endstops_hit_on_purpose();
 #ifndef MESH_BED_LEVELING
     // If MESH_BED_LEVELING is not active, then it is the original Prusa i3.
@@ -3155,9 +3176,9 @@ static void gcode_PRUSA_SN()
 #if 0
         for (int b = 0; b < 3; b++) {
             tone(BEEPER, 110);
-            delay(50);
+            _delay(50);
             noTone(BEEPER);
-            delay(50);
+            _delay(50);
         }
 #endif
     } else {
@@ -3437,7 +3458,7 @@ void process_commands()
     else if(code_seen("PRUSA")){
         if (code_seen("Ping")) {  //! PRUSA Ping
             if (farm_mode) {
-                PingTime = millis();
+				PingTime = _millis();
                 //MYSERIAL.print(farm_no); MYSERIAL.println(": OK");
             }
         }
@@ -3523,7 +3544,7 @@ void process_commands()
 
         } else if(code_seen("Beat")) { //! PRUSA Beat
             // Kick farm link timer
-            kicktime = millis();
+        kicktime = _millis();
 
         } else if(code_seen("FR")) { //! PRUSA FR
             // Factory full reset
@@ -3590,7 +3611,7 @@ void process_commands()
                         disable_e0();
                         disable_e1();
                         disable_e2();
-                        delay(100);
+                        _delay(100);
 
                         //LCD_ALERTMESSAGEPGM(_T(MSG_FILAMENTCHANGE));
                         uint8_t cnt=0;
@@ -3757,9 +3778,9 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
                 if(code_seen('S')) codenum = code_value() * 1000; // seconds to wait
                 if(codenum != 0) LCD_MESSAGERPGM(_n("Sleep..."));////MSG_DWELL c=0 r=0
                 st_synchronize();
-                codenum += millis();  // keep track of when we started waiting
-                previous_millis_cmd = millis();
-                while(millis() < codenum) {
+      codenum += _millis();  // keep track of when we started waiting
+      previous_millis_cmd = _millis();
+      while(_millis() < codenum) {
                     manage_heater();
                     manage_inactivity();
                     lcd_update(0);
@@ -4790,7 +4811,7 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
 
             case 98: //! G98 (activate farm mode)
                 farm_mode = 1;
-                PingTime = millis();
+		PingTime = _millis();
                 eeprom_update_byte((unsigned char *)EEPROM_FARM_MODE, farm_mode);
                 EEPROM_save_B(EEPROM_FARM_NUMBER, &farm_no);
                 SilentModeMenu = SILENT_MODE_OFF;
@@ -4855,11 +4876,11 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
 
                     lcd_ignore_click();				//call lcd_ignore_click aslo for else ???
                     st_synchronize();
-                    previous_millis_cmd = millis();
+      previous_millis_cmd = _millis();
                     if (codenum > 0){
-                        codenum += millis();  // keep track of when we started waiting
+        codenum += _millis();  // keep track of when we started waiting
                         KEEPALIVE_STATE(PAUSED_FOR_USER);
-                        while(millis() < codenum && !lcd_clicked()){
+        while(_millis() < codenum && !lcd_clicked()){
                             manage_heater();
                             manage_inactivity(true);
                             lcd_update(0);
@@ -4916,7 +4937,7 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
                     if (!card.paused)
                         failstats_reset_print();
                     card.startFileprint();
-                    starttime=millis();
+      starttime=_millis();
                     break;
                 case 25: //M25 - Pause SD print
                     card.pauseSDPrint();
@@ -4986,7 +5007,7 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
                                 card.setIndex(code_value_long());
                         card.startFileprint();
                         if(!call_procedure)
-                            starttime=millis(); //procedure calls count as normal print time.
+          starttime=_millis(); //procedure calls count as normal print time.
                     }
                 } break;
                 case 928: //M928 - Start SD write
@@ -5003,7 +5024,7 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
 
                 case 31: //M31 take time since the start of the SD print or an M109 command
                 {
-                    stoptime=millis();
+      stoptime=_millis();
                     char time[30];
                     unsigned long t=(stoptime-starttime)/1000;
                     int sec,min;
@@ -5279,9 +5300,9 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
 		double radius=0.0, theta=0.0, x_sweep, y_sweep;
 		int rotational_direction, l;
 
-			rotational_direction = (unsigned long) millis() & 0x0001;			// clockwise or counter clockwise
-			radius = (unsigned long) millis() % (long) (X_MAX_LENGTH/4); 			// limit how far out to go
-			theta = (float) ((unsigned long) millis() % (long) 360) / (360./(2*3.1415926));	// turn into radians
+			rotational_direction = (unsigned long) _millis() & 0x0001;			// clockwise or counter clockwise
+			radius = (unsigned long) _millis() % (long) (X_MAX_LENGTH/4); 			// limit how far out to go 
+			theta = (float) ((unsigned long) _millis() % (long) 360) / (360./(2*3.1415926));	// turn into radians
 
 //SERIAL_ECHOPAIR("starting radius: ",radius);
 //SERIAL_ECHOPAIR("   theta: ",theta);
@@ -5290,11 +5311,11 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
 
 			for( l=0; l<n_legs-1; l++) {
 				if (rotational_direction==1)
-					theta += (float) ((unsigned long) millis() % (long) 20) / (360.0/(2*3.1415926)); // turn into radians
+					theta += (float) ((unsigned long) _millis() % (long) 20) / (360.0/(2*3.1415926)); // turn into radians
 				else
-					theta -= (float) ((unsigned long) millis() % (long) 20) / (360.0/(2*3.1415926)); // turn into radians
+					theta -= (float) ((unsigned long) _millis() % (long) 20) / (360.0/(2*3.1415926)); // turn into radians
 
-				radius += (float) ( ((long) ((unsigned long) millis() % (long) 10)) - 5);
+				radius += (float) ( ((long) ((unsigned long) _millis() % (long) 10)) - 5);
 				if ( radius<0.0 )
 					radius = -radius;
 
@@ -5371,7 +5392,7 @@ if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
 
 	}
 
-	delay(1000);
+	_delay(1000);
 
     clean_up_after_endstop_move(l_feedmultiply);
 
@@ -5549,7 +5570,7 @@ Sigma_Exit:
 #endif
 
                     setWatch();
-                    codenum = millis();
+      codenum = _millis();
 
                     /* See if we are heating up or cooling down */
                     target_direction = isHeatingHotend(extruder); // true if heating, false if cooling
@@ -5565,8 +5586,8 @@ Sigma_Exit:
                     heating_status = 2;
                     if (farm_mode) { prusa_statistics(2); };
 
-                    //starttime=millis();
-                    previous_millis_cmd = millis();
+        //starttime=_millis();
+        previous_millis_cmd = _millis();
                 }
                     break;
                 case 190: // M190 - Wait for bed heater to reach target.
@@ -5584,7 +5605,7 @@ Sigma_Exit:
                         setTargetBed(code_value());
                         CooldownNoWait = false;
                     }
-                    codenum = millis();
+        codenum = _millis();
 
                     cancel_heatup = false;
                     target_direction = isHeatingBed(); // true if heating, false if cooling
@@ -5592,7 +5613,7 @@ Sigma_Exit:
                     KEEPALIVE_STATE(NOT_BUSY);
                     while ( (target_direction)&&(!cancel_heatup) ? (isHeatingBed()) : (isCoolingBed()&&(CooldownNoWait==false)) )
                     {
-                        if(( millis() - codenum) > 1000 ) //Print Temp Reading every 1 second while heating up.
+          if(( _millis() - codenum) > 1000 ) //Print Temp Reading every 1 second while heating up.
                         {
                             if (!farm_mode) {
                                 float tt = degHotend(active_extruder);
@@ -5604,7 +5625,7 @@ Sigma_Exit:
                                 SERIAL_PROTOCOL_F(degBed(), 1);
                                 SERIAL_PROTOCOLLN("");
                             }
-                            codenum = millis();
+				  codenum = _millis();
 
                         }
                         manage_heater();
@@ -5615,7 +5636,7 @@ Sigma_Exit:
                     KEEPALIVE_STATE(IN_HANDLER);
                     heating_status = 4;
 
-                    previous_millis_cmd = millis();
+        previous_millis_cmd = _millis();
 #endif
                     break;
 
@@ -5660,7 +5681,7 @@ Sigma_Exit:
                     disable_e2();
                     finishAndDisableSteppers();
                     fanSpeed = 0;
-                    delay(1000); // Wait a little before to switch off
+        _delay(1000); // Wait a little before to switch off
 #if defined(SUICIDE_PIN) && SUICIDE_PIN > -1
                 st_synchronize();
         suicide();
@@ -6213,7 +6234,7 @@ Sigma_Exit:
 #endif
             servos[servo_index].write(servo_position);
 #if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
-              delay(PROBE_SERVO_DEACTIVATION_DELAY);
+              _delay(PROBE_SERVO_DEACTIVATION_DELAY);
               servos[servo_index].detach();
 #endif
           }
@@ -6246,13 +6267,13 @@ Sigma_Exit:
 #if BEEPER > 0
                         if((eSoundMode==e_SOUND_MODE_LOUD)||(eSoundMode==e_SOUND_MODE_ONCE))
                             tone(BEEPER, beepS);
-                        delay(beepP);
+          _delay(beepP);
                         noTone(BEEPER);
 #endif
                     }
                     else
                     {
-                        delay(beepP);
+        _delay(beepP);
                     }
                 }
                     break;
@@ -6311,7 +6332,7 @@ Sigma_Exit:
 
                     SET_OUTPUT(CHDK);
          WRITE(CHDK, HIGH);
-         chdkHigh = millis();
+         chdkHigh = _millis();
          chdkActive = true;
 
 #else
@@ -6325,7 +6346,7 @@ Sigma_Exit:
         WRITE(PHOTOGRAPH_PIN, LOW);
         _delay_ms(PULSE_LENGTH);
         }
-        delay(7.33);
+        _delay(7.33);
         for(int i=0; i < NUM_PULSES; i++) {
         WRITE(PHOTOGRAPH_PIN, HIGH);
         _delay_ms(PULSE_LENGTH);
@@ -6559,7 +6580,7 @@ Sigma_Exit:
                     SERIAL_PROTOCOL(set_target_pinda);
                     SERIAL_PROTOCOLLN("");
 
-                    codenum = millis();
+		codenum = _millis();
                     cancel_heatup = false;
 
                     bool is_pinda_cooling = false;
@@ -6568,14 +6589,14 @@ Sigma_Exit:
                     }
 
                     while ( ((!is_pinda_cooling) && (!cancel_heatup) && (current_temperature_pinda < set_target_pinda)) || (is_pinda_cooling && (current_temperature_pinda > set_target_pinda)) ) {
-                        if ((millis() - codenum) > 1000) //Print Temp Reading every 1 second while waiting.
+			if ((_millis() - codenum) > 1000) //Print Temp Reading every 1 second while waiting.
                         {
                             SERIAL_PROTOCOLPGM("P:");
                             SERIAL_PROTOCOL_F(current_temperature_pinda, 1);
                             SERIAL_PROTOCOLPGM("/");
                             SERIAL_PROTOCOL(set_target_pinda);
                             SERIAL_PROTOCOLLN("");
-                            codenum = millis();
+				codenum = _millis();
                         }
                         manage_heater();
                         manage_inactivity();
@@ -6905,16 +6926,20 @@ Sigma_Exit:
             if (mmu_enabled)
             {
                 tmp_extruder = choose_menu_P(_T(MSG_CHOOSE_FILAMENT), _T(MSG_FILAMENT));
+			if ((tmp_extruder == mmu_extruder) && mmu_fil_loaded) {
+				printf_P(PSTR("Duplicit T-code ignored.\n"));
+				return; //dont execute the same T-code twice in a row
+			}
                 st_synchronize();
                 mmu_command(MMU_CMD_T0 + tmp_extruder);
-                manage_response(true, true);
+			manage_response(true, true, MMU_TCODE_MOVE);
             }
         }
         else if (*(strchr_pointer + index) == 'c') { //load to from bondtech gears to nozzle (nozzle should be preheated)
             if (mmu_enabled)
             {
                 st_synchronize();
-                mmu_command(MMU_CMD_C0);
+			mmu_continue_loading();
                 mmu_extruder = tmp_extruder; //filament change is finished
                 mmu_load_to_nozzle();
             }
@@ -6933,16 +6958,24 @@ Sigma_Exit:
             }
             else {
                 tmp_extruder = code_value();
+              if (mmu_enabled && lcd_autoDepleteEnabled())
+              {
+                  tmp_extruder = ad_getAlternative(tmp_extruder);
+              }
             }
             st_synchronize();
             snmm_filaments_used |= (1 << tmp_extruder); //for stop print
 
             if (mmu_enabled)
             {
+              if ((tmp_extruder == mmu_extruder) && mmu_fil_loaded) {
+                  printf_P(PSTR("Duplicit T-code ignored.\n"));
+                  return; //dont execute the same T-code twice in a row
+              }
                 mmu_command(MMU_CMD_T0 + tmp_extruder);
 
-                manage_response(true, true);
-                mmu_command(MMU_CMD_C0);
+			  manage_response(true, true, MMU_TCODE_MOVE);
+			  mmu_continue_loading();
                 mmu_extruder = tmp_extruder; //filament change is finished
 
                 if (load_to_nozzle)// for single material usage with mmu
@@ -6962,7 +6995,7 @@ Sigma_Exit:
               mmu_extruder = tmp_extruder;
 
 
-              delay(100);
+              _delay(100);
 
               disable_e0();
               disable_e1();
@@ -6971,7 +7004,7 @@ Sigma_Exit:
               pinMode(E_MUX0_PIN, OUTPUT);
               pinMode(E_MUX1_PIN, OUTPUT);
 
-              delay(100);
+              _delay(100);
               SERIAL_ECHO_START;
               SERIAL_ECHO("T:");
               SERIAL_ECHOLN((int)tmp_extruder);
@@ -6997,7 +7030,7 @@ Sigma_Exit:
 
                   break;
               }
-              delay(100);
+              _delay(100);
 
 #else //SNMM
                 if (tmp_extruder >= EXTRUDERS) {
@@ -7126,7 +7159,7 @@ void FlushSerialRequestResend()
 // Execution of a command from a SD card will not be confirmed.
 void ClearToSend()
 {
-    previous_millis_cmd = millis();
+    previous_millis_cmd = _millis();
     if ((CMDBUFFER_CURRENT_TYPE == CMDBUFFER_CURRENT_TYPE_USB) || (CMDBUFFER_CURRENT_TYPE == CMDBUFFER_CURRENT_TYPE_USB_WITH_LINENR))
         SERIAL_PROTOCOLLNRPGM(MSG_OK);
 }
@@ -7297,7 +7330,7 @@ void mesh_plan_buffer_line(const float &x, const float &y, const float &z, const
 void prepare_move()
 {
     clamp_to_software_endstops(destination);
-    previous_millis_cmd = millis();
+  previous_millis_cmd = _millis();
 
     // Do not use feedmultiply for E or Z only moves
     if( (current_position[X_AXIS] == destination [X_AXIS]) && (current_position[Y_AXIS] == destination [Y_AXIS])) {
@@ -7328,7 +7361,7 @@ void prepare_arc_move(char isclockwise) {
     for(int8_t i=0; i < NUM_AXIS; i++) {
         current_position[i] = destination[i];
     }
-    previous_millis_cmd = millis();
+  previous_millis_cmd = _millis();
 }
 
 #if defined(CONTROLLERFAN_PIN) && CONTROLLERFAN_PIN > -1
@@ -7344,9 +7377,9 @@ unsigned long lastMotorCheck = 0;
 
 void controllerFan()
 {
-  if ((millis() - lastMotorCheck) >= 2500) //Not a time critical function, so we only check every 2500ms
+  if ((_millis() - lastMotorCheck) >= 2500) //Not a time critical function, so we only check every 2500ms
   {
-    lastMotorCheck = millis();
+    lastMotorCheck = _millis();
 
     if(!READ(X_ENABLE_PIN) || !READ(Y_ENABLE_PIN) || !READ(Z_ENABLE_PIN) || (soft_pwm_bed > 0)
     #if EXTRUDERS > 2
@@ -7360,10 +7393,10 @@ void controllerFan()
     #endif
        || !READ(E0_ENABLE_PIN)) //If any of the drivers are enabled...
     {
-      lastMotor = millis(); //... set time to NOW so the fan will turn on
+      lastMotor = _millis(); //... set time to NOW so the fan will turn on
     }
 
-    if ((millis() - lastMotor) >= (CONTROLLERFAN_SECS*1000UL) || lastMotor == 0) //If the last time any driver was enabled, is longer since than CONTROLLERSEC...
+    if ((_millis() - lastMotor) >= (CONTROLLERFAN_SECS*1000UL) || lastMotor == 0) //If the last time any driver was enabled, is longer since than CONTROLLERSEC...
     {
         digitalWrite(CONTROLLERFAN_PIN, 0);
         analogWrite(CONTROLLERFAN_PIN, 0);
@@ -7385,7 +7418,7 @@ static uint32_t stat_update = 0;
 
 void handle_status_leds(void) {
   float max_temp = 0.0;
-  if(millis() > stat_update) {
+  if(_millis() > stat_update) {
     stat_update += 500; // Update every 0.5s
     for (int8_t cur_extruder = 0; cur_extruder < EXTRUDERS; ++cur_extruder) {
        max_temp = max(max_temp, degHotend(cur_extruder));
@@ -7494,11 +7527,11 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) //default argument s
         get_command();
     }
 
-    if( (millis() - previous_millis_cmd) >  max_inactive_time )
+  if( (_millis() - previous_millis_cmd) >  max_inactive_time )
         if(max_inactive_time)
             kill(_n(""), 4);
     if(stepper_inactive_time)  {
-        if( (millis() - previous_millis_cmd) >  stepper_inactive_time )
+    if( (_millis() - previous_millis_cmd) >  stepper_inactive_time )
         {
             if(blocks_queued() == false && ignore_stepper_queue == false) {
                 disable_x();
@@ -7512,7 +7545,7 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) //default argument s
     }
 
 #ifdef CHDK //Check if pin should be set to LOW after M240 set it to HIGH
-    if (chdkActive && (millis() - chdkHigh > CHDK_DELAY))
+    if (chdkActive && (_millis() - chdkHigh > CHDK_DELAY))
     {
       chdkActive = false;
       WRITE(CHDK, LOW);
@@ -7545,7 +7578,7 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) //default argument s
     controllerFan(); //Check if fan should be turned on to cool stepper drivers down
 #endif
 #ifdef EXTRUDER_RUNOUT_PREVENT
-    if( (millis() - previous_millis_cmd) >  EXTRUDER_RUNOUT_SECONDS*1000 )
+    if( (_millis() - previous_millis_cmd) >  EXTRUDER_RUNOUT_SECONDS*1000 )
     if(degHotend(active_extruder)>EXTRUDER_RUNOUT_MINTEMP)
     {
      bool oldstatus=READ(E0_ENABLE_PIN);
@@ -7558,7 +7591,7 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) //default argument s
      current_position[E_AXIS]=oldepos;
      destination[E_AXIS]=oldedes;
      plan_set_e_position(oldepos);
-     previous_millis_cmd=millis();
+     previous_millis_cmd=_millis();
      st_synchronize();
      WRITE(E0_ENABLE_PIN,oldstatus);
     }
@@ -7601,7 +7634,7 @@ void kill(const char *full_screen_message, unsigned char id)
     sei();   // enable interrupts
     for ( int i=5; i--; lcd_update(0))
     {
-        delay(200);
+     _delay(200);	
     }
     cli();   // disable interrupts
     suicide();
@@ -7620,6 +7653,7 @@ void Stop()
     disable_heater();
     if(Stopped == false) {
         Stopped = true;
+    lcd_print_stop();
         Stopped_gcode_LastN = gcode_LastN; // Save last g_code for restart
         SERIAL_ERROR_START;
         SERIAL_ERRORLNRPGM(MSG_ERR_STOPPED);
@@ -7788,10 +7822,10 @@ void delay_keep_alive(unsigned int ms)
         if (ms == 0)
             break;
         else if (ms >= 50) {
-            delay(50);
+            _delay(50);
             ms -= 50;
         } else {
-            delay(ms);
+			_delay(ms);
             ms = 0;
         }
     }
@@ -7805,11 +7839,11 @@ static void wait_for_heater(long codenum, uint8_t extruder) {
     /* continue to loop until we have reached the target temp
 	_and_ until TEMP_RESIDENCY_TIME hasn't passed since we reached it */
     while ((!cancel_heatup) && ((residencyStart == -1) ||
-                                (residencyStart >= 0 && (((unsigned int)(millis() - residencyStart)) < (TEMP_RESIDENCY_TIME * 1000UL))))) {
+		(residencyStart >= 0 && (((unsigned int)(_millis() - residencyStart)) < (TEMP_RESIDENCY_TIME * 1000UL))))) {
 #else
         while (target_direction ? (isHeatingHotend(tmp_extruder)) : (isCoolingHotend(tmp_extruder) && (CooldownNoWait == false))) {
 #endif //TEMP_RESIDENCY_TIME
-        if ((millis() - codenum) > 1000UL)
+		if ((_millis() - codenum) > 1000UL)
         { //Print Temp Reading and remaining time every 1 second while heating up/cooling down
             if (!farm_mode) {
                 SERIAL_PROTOCOLPGM("T:");
@@ -7821,7 +7855,7 @@ static void wait_for_heater(long codenum, uint8_t extruder) {
                 SERIAL_PROTOCOLPGM(" W:");
                 if (residencyStart > -1)
                 {
-                    codenum = ((TEMP_RESIDENCY_TIME * 1000UL) - (millis() - residencyStart)) / 1000UL;
+					codenum = ((TEMP_RESIDENCY_TIME * 1000UL) - (_millis() - residencyStart)) / 1000UL;
                     SERIAL_PROTOCOLLN(codenum);
                 }
                 else
@@ -7832,7 +7866,7 @@ static void wait_for_heater(long codenum, uint8_t extruder) {
 #else
             SERIAL_PROTOCOLLN("");
 #endif
-            codenum = millis();
+				codenum = _millis();
         }
         manage_heater();
         manage_inactivity(true); //do not disable steppers
@@ -7844,7 +7878,7 @@ static void wait_for_heater(long codenum, uint8_t extruder) {
             (residencyStart == -1 && !target_direction && (degHotend(extruder) <= (degTargetHotend(extruder) + TEMP_WINDOW))) ||
             (residencyStart > -1 && labs(degHotend(extruder) - degTargetHotend(extruder)) > TEMP_HYSTERESIS))
         {
-            residencyStart = millis();
+				residencyStart = _millis();
         }
 #endif //TEMP_RESIDENCY_TIME
     }
@@ -8007,9 +8041,9 @@ void bed_analysis(float x_dimension, float y_dimension, int x_points_num, int y_
 
 
 		//MYSERIAL.println(data_wldsd);
-		//delay(1000);
-		//delay(3000);
-		//t1 = millis();
+		//_delay(1000);
+		//_delay(3000);
+		//t1 = _millis();
 
 		//while (digitalRead(D_DATACLOCK) == LOW) {}
 		//while (digitalRead(D_DATACLOCK) == HIGH) {}
@@ -8019,14 +8053,14 @@ void bed_analysis(float x_dimension, float y_dimension, int x_points_num, int y_
 
 		for (int i = 0; i<13; i++)
 		{
-			//t1 = millis();
+			//t1 = _millis();
 			for (int j = 0; j < 4; j++)
 			{
 				while (digitalRead(D_DATACLOCK) == LOW) {}
 				while (digitalRead(D_DATACLOCK) == HIGH) {}
 				bitWrite(digit[i], j, digitalRead(D_DATA));
 			}
-			//t_delay = (millis() - t1);
+			//t_delay = (_millis() - t1);
 			//SERIAL_PROTOCOLPGM(" ");
 			//SERIAL_PROTOCOL_F(t_delay, 5);
 			//SERIAL_PROTOCOLPGM(" ");
@@ -8227,7 +8261,7 @@ void long_pause() //long pause print
 {
     st_synchronize();
 
-    start_pause_print = millis();
+	start_pause_print = _millis();
 
     //retract
     current_position[E_AXIS] -= default_retraction;
@@ -8266,7 +8300,7 @@ extern uint32_t sdpos_atomic;
 
 void uvlo_()
 {
-    unsigned long time_start = millis();
+	unsigned long time_start = _millis();
     bool sd_print = card.sdprinting;
     // Conserve power as soon as possible.
     disable_x();
@@ -8396,7 +8430,7 @@ void uvlo_()
     eeprom_update_byte((uint8_t*)EEPROM_POWER_COUNT, eeprom_read_byte((uint8_t*)EEPROM_POWER_COUNT) + 1);
     eeprom_update_word((uint16_t*)EEPROM_POWER_COUNT_TOT, eeprom_read_word((uint16_t*)EEPROM_POWER_COUNT_TOT) + 1);
 
-    printf_P(_N("UVLO - end %d\n"), millis() - time_start);
+		printf_P(_N("UVLO - end %d\n"), _millis() - time_start);
 
 #if 0
     // Move the print head to the side of the print until all the power stored in the power supply capacitors is depleted.
@@ -8908,7 +8942,7 @@ void restore_print_from_ram_and_continue(float e_move)
     active_extruder = saved_active_extruder; //restore active_extruder
     setTargetHotendSafe(saved_extruder_temperature,saved_active_extruder);
     heating_status = 1;
-    wait_for_heater(millis(),saved_active_extruder);
+	wait_for_heater(_millis(),saved_active_extruder);
     heating_status = 2;
     feedrate = saved_feedrate2; //restore feedrate
     axis_relative_modes[E_AXIS] = saved_extruder_relative_mode;
@@ -9059,7 +9093,7 @@ void M600_wait_for_user(float HotendTempBckp) {
     KEEPALIVE_STATE(PAUSED_FOR_USER);
 
     int counterBeep = 0;
-    unsigned long waiting_start_time = millis();
+		unsigned long waiting_start_time = _millis();
     uint8_t wait_for_user_state = 0;
     lcd_display_message_fullscreen_P(_T(MSG_PRESS_TO_UNLOAD));
     bool bFirst=true;
@@ -9091,7 +9125,7 @@ void M600_wait_for_user(float HotendTempBckp) {
             case 0: //nozzle is hot, waiting for user to press the knob to unload filament
                 delay_keep_alive(4);
 
-                if (millis() > waiting_start_time + (unsigned long)M600_TIMEOUT * 1000) {
+				if (_millis() > waiting_start_time + (unsigned long)M600_TIMEOUT * 1000) {
                     lcd_display_message_fullscreen_P(_i("Press knob to preheat nozzle and continue."));////MSG_PRESS_TO_PREHEAT c=20 r=4
                     wait_for_user_state = 1;
                     setAllTargetHotends(0);
@@ -9115,7 +9149,7 @@ void M600_wait_for_user(float HotendTempBckp) {
 
                 if (abs(degTargetHotend(active_extruder) - degHotend(active_extruder)) < 1) {
                     lcd_display_message_fullscreen_P(_T(MSG_PRESS_TO_UNLOAD));
-                    waiting_start_time = millis();
+					waiting_start_time = _millis();
                     wait_for_user_state = 0;
                 }
                 else {
@@ -9164,7 +9198,7 @@ void M600_load_filament() {
     //load filament for single material and SNMM
     lcd_wait_interact();
 
-    //load_filament_time = millis();
+	//load_filament_time = _millis();
     KEEPALIVE_STATE(PAUSED_FOR_USER);
 
 #ifdef FILAMENT_SENSOR
